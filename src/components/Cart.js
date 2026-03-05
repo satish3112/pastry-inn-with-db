@@ -13,9 +13,11 @@ export default function Cart({ cart, cartTotal, onClose, onUpdateQty, onClear, w
     setOrdered(true);
   };
 
-  const upiPayUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(shopName)}&am=${cartTotal}&cu=INR&tn=${encodeURIComponent("Food Order")}`;
-  const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiPayUrl)}`;
 
+  // const upiPayUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(shopName)}&am=${cartTotal}&cu=INR&tn=${encodeURIComponent("Food Order")}`;
+  // const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(upiPayUrl)}`;
+  const upiPayUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(shopName)}&am=${cartTotal}&cu=INR&tn=Food+Order`;
+  const upiQrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=256x256&data=${encodeURIComponent(upiPayUrl)}&margin=10&format=png`;
   return (
     <>
       {/* Backdrop */}

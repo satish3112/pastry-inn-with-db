@@ -13,7 +13,7 @@ import {
 
 const DEFAULT_SETTINGS = {
   shopName: "Our Cafe",
-  whatsappNumber: "919037650365",
+  whatsappNumber: "918499902564",
   upiId: "neerajaGedalaa@upi",
   adminPass: "admin123",
 };
