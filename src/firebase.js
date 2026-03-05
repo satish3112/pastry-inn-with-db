@@ -1,19 +1,8 @@
 import { initializeApp } from "firebase/app";
 import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  collection,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  writeBatch,
-  query,
-  orderBy,
-  serverTimestamp,
+  getFirestore, doc, getDoc, setDoc, collection,
+  getDocs, addDoc, updateDoc, deleteDoc, onSnapshot,
+  writeBatch, query, orderBy, where, serverTimestamp,
 } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -28,114 +17,154 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-const MENU_COLLECTION   = "menuItems";
-const ORDERS_COLLECTION = "orders";
-const SETTINGS_DOC      = "settings/shopSettings";
+// ─────────────────────────────────────────────────────────────
+//  BRANCH CONFIG
+//  Each branch has its own menu + orders + settings in Firestore
+//  Structure:
+//    branches/{branchId}/menuItems/{itemId}
+//    branches/{branchId}/orders/{orderId}
+//    branches/{branchId}/settings/shopSettings
+// ─────────────────────────────────────────────────────────────
+
+/** Get branch ID from URL query param e.g. ?branch=branch2
+ *  Falls back to "branch1" if not specified
+ */
+export function getBranchId() {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("branch") || "branch1";
+}
+
+const branchRef = (branchId) => `branches/${branchId}`;
+const menuCol   = (branchId) => collection(db, branchRef(branchId), "menuItems");
+const ordersCol = (branchId) => collection(db, branchRef(branchId), "orders");
+const settingsDoc = (branchId) => doc(db, branchRef(branchId), "settings", "shopSettings");
 
 // ─────────────────────────────────────────────────────────────
 //  MENU ITEMS
 // ─────────────────────────────────────────────────────────────
-export function subscribeToMenu(callback) {
-  const ref = collection(db, MENU_COLLECTION);
-  return onSnapshot(ref, (snapshot) => {
+export function subscribeToMenu(branchId, callback) {
+  return onSnapshot(menuCol(branchId), (snapshot) => {
     const items = snapshot.docs.map(d => ({ ...d.data(), _docId: d.id }));
     items.sort((a, b) => a.id - b.id);
     callback(items);
   });
 }
 
-export async function addMenuItem(item) {
-  const ref = collection(db, MENU_COLLECTION);
-  const docRef = await addDoc(ref, item);
-  return docRef.id;
+export async function addMenuItem(branchId, item) {
+  return await addDoc(menuCol(branchId), item);
 }
 
-export async function updateMenuItem(item) {
+export async function updateMenuItem(branchId, item) {
   const { _docId, ...data } = item;
-  await updateDoc(doc(db, MENU_COLLECTION, _docId), data);
+  await updateDoc(doc(db, branchRef(branchId), "menuItems", _docId), data);
 }
 
-export async function deleteMenuItem(_docId) {
-  await deleteDoc(doc(db, MENU_COLLECTION, _docId));
+export async function deleteMenuItem(branchId, _docId) {
+  await deleteDoc(doc(db, branchRef(branchId), "menuItems", _docId));
 }
 
-export async function seedMenuIfEmpty(initialItems) {
-  const snapshot = await getDocs(collection(db, MENU_COLLECTION));
+export async function seedMenuIfEmpty(branchId, initialItems) {
+  const snapshot = await getDocs(menuCol(branchId));
   if (snapshot.size > 0) return;
-  if (localStorage.getItem("seeded") === "true") return;
-  localStorage.setItem("seeded", "true");
+  const key = `seeded_${branchId}`;
+  if (localStorage.getItem(key) === "true") return;
+  localStorage.setItem(key, "true");
   const batch = writeBatch(db);
-  initialItems.forEach(item => {
-    batch.set(doc(collection(db, MENU_COLLECTION)), item);
-  });
+  initialItems.forEach(item => batch.set(doc(menuCol(branchId)), item));
   await batch.commit();
+  console.log(`✅ Menu seeded for ${branchId}`);
 }
 
 // ─────────────────────────────────────────────────────────────
 //  ORDERS
 // ─────────────────────────────────────────────────────────────
-
-/** Generate a short readable order ID e.g. ORD-4829 */
 export function generateOrderId() {
   return "ORD-" + Math.floor(1000 + Math.random() * 9000);
 }
 
-/** Save a new order to Firestore */
-export async function placeOrder(orderData) {
-  const ref = collection(db, ORDERS_COLLECTION);
-  const docRef = await addDoc(ref, {
+/** Place order — saved under branch AND customer phone for history */
+export async function placeOrder(branchId, orderData) {
+  // 1. Save to branch orders (admin sees this)
+  const branchOrderRef = await addDoc(ordersCol(branchId), {
     ...orderData,
-    status: "pending",       // pending | preparing | ready | done
+    branchId,
+    status: "pending",
+    seen: false,
     createdAt: serverTimestamp(),
-    seen: false,             // admin has seen this order?
   });
-  return docRef.id;
+
+  // 2. Save to customer order history (customer can look up by phone)
+  const customerRef = doc(db, "customerOrders", orderData.customerPhone, "orders", branchOrderRef.id);
+  await setDoc(customerRef, {
+    ...orderData,
+    branchId,
+    status: "pending",
+    createdAt: serverTimestamp(),
+    _branchOrderDocId: branchOrderRef.id,
+  });
+
+  return branchOrderRef.id;
 }
 
-/** Listen to all orders in real-time (for admin) */
-export function subscribeToOrders(callback) {
-  const ref = query(collection(db, ORDERS_COLLECTION), orderBy("createdAt", "desc"));
-  return onSnapshot(ref, (snapshot) => {
-    const orders = snapshot.docs.map(d => ({ ...d.data(), _docId: d.id }));
-    callback(orders);
+/** Admin: subscribe to all orders for a branch */
+export function subscribeToOrders(branchId, callback) {
+  const q = query(ordersCol(branchId), orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map(d => ({ ...d.data(), _docId: d.id })));
   });
 }
 
-/** Update order status */
-export async function updateOrderStatus(_docId, status) {
-  await updateDoc(doc(db, ORDERS_COLLECTION, _docId), { status, seen: true });
+/** Customer: get all orders by phone number (across all branches) */
+export async function getCustomerOrders(phoneNumber) {
+  const ref = collection(db, "customerOrders", phoneNumber, "orders");
+  const q = query(ref, orderBy("createdAt", "desc"));
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map(d => ({ ...d.data(), _docId: d.id }));
 }
 
-/** Mark order as seen (removes notification badge) */
-export async function markOrderSeen(_docId) {
-  await updateDoc(doc(db, ORDERS_COLLECTION, _docId), { seen: true });
+/** Customer: subscribe to orders in real-time */
+export function subscribeToCustomerOrders(phoneNumber, callback) {
+  const ref = collection(db, "customerOrders", phoneNumber, "orders");
+  const q = query(ref, orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map(d => ({ ...d.data(), _docId: d.id })));
+  });
 }
 
-/** Delete old done orders */
-export async function deleteOrder(_docId) {
-  await deleteDoc(doc(db, ORDERS_COLLECTION, _docId));
+/** Admin: update order status (syncs to customer history too) */
+export async function updateOrderStatus(branchId, _docId, customerPhone, status) {
+  // Update in branch
+  await updateDoc(doc(db, branchRef(branchId), "orders", _docId), { status, seen: true });
+  // Sync status to customer history
+  try {
+    await updateDoc(doc(db, "customerOrders", customerPhone, "orders", _docId), { status });
+  } catch (e) { console.log("Could not sync status to customer history"); }
+}
+
+export async function deleteOrder(branchId, _docId) {
+  await deleteDoc(doc(db, branchRef(branchId), "orders", _docId));
 }
 
 // ─────────────────────────────────────────────────────────────
 //  SETTINGS
 // ─────────────────────────────────────────────────────────────
-export function subscribeToSettings(callback) {
-  return onSnapshot(doc(db, SETTINGS_DOC), (snap) => {
+export function subscribeToSettings(branchId, callback) {
+  return onSnapshot(settingsDoc(branchId), (snap) => {
     if (snap.exists()) callback(snap.data());
   });
 }
 
-export async function saveSettings(settings) {
-  await setDoc(doc(db, SETTINGS_DOC), settings, { merge: true });
+export async function saveSettings(branchId, settings) {
+  await setDoc(settingsDoc(branchId), settings, { merge: true });
 }
 
-export async function seedSettingsIfEmpty(defaults) {
-  const snap = await getDoc(doc(db, SETTINGS_DOC));
-  if (!snap.exists()) await setDoc(doc(db, SETTINGS_DOC), defaults);
+export async function seedSettingsIfEmpty(branchId, defaults) {
+  const snap = await getDoc(settingsDoc(branchId));
+  if (!snap.exists()) await setDoc(settingsDoc(branchId), defaults);
 }
 
 // ─────────────────────────────────────────────────────────────
-//  IMAGE COMPRESS (free — no Firebase Storage needed)
+//  IMAGE COMPRESS
 // ─────────────────────────────────────────────────────────────
 export function compressImage(file) {
   return new Promise((resolve, reject) => {

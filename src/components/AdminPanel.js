@@ -4,13 +4,13 @@ import { addMenuItem, updateMenuItem, deleteMenuItem, saveSettings, subscribeToO
 const emptyItem = { id: Date.now(), name: "", desc: "", price: "", category: "", image: "", available: true };
 
 const STATUS_CONFIG = {
-  pending:    { label: "Pending",    emoji: "🔔", bg: "#FEF3C7", color: "#D97706" },
-  preparing:  { label: "Preparing", emoji: "👨‍🍳", bg: "#DBEAFE", color: "#2563EB" },
-  ready:      { label: "Ready",     emoji: "✅", bg: "#DCFCE7", color: "#16A34A" },
-  done:       { label: "Done",      emoji: "🏁", bg: "#F3F4F6", color: "#6B7280" },
+  pending:   { label: "Pending",    emoji: "🔔", bg: "#FEF3C7", color: "#D97706" },
+  preparing: { label: "Preparing", emoji: "👨‍🍳", bg: "#DBEAFE", color: "#2563EB" },
+  ready:     { label: "Ready",     emoji: "✅", bg: "#DCFCE7", color: "#16A34A" },
+  done:      { label: "Done",      emoji: "🏁", bg: "#F3F4F6", color: "#6B7280" },
 };
 
-export default function AdminPanel({ menuItems, settings, onExit }) {
+export default function AdminPanel({ menuItems, settings, branchId, onExit }) {
   const [activeTab, setActiveTab] = useState("orders");
   const [orders, setOrders] = useState([]);
   const [newOrderCount, setNewOrderCount] = useState(0);
@@ -24,45 +24,39 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
   const [newCatName, setNewCatName] = useState("");
   const [settingsForm, setSettingsForm] = useState({ ...settings });
   const [settingsSaved, setSettingsSaved] = useState(false);
-  const prevOrderCount = useRef(0);
+  const prevCount = useRef(0);
   const audioCtx = useRef(null);
 
   const categories = [...new Set(menuItems.map(i => i.category))];
 
-  // ── Notification sound (Web Audio API — no file needed) ──────────────
-  const playNotificationSound = () => {
+  const playSound = () => {
     try {
       if (!audioCtx.current) audioCtx.current = new (window.AudioContext || window.webkitAudioContext)();
       const ctx = audioCtx.current;
-      const notes = [523, 659, 784]; // C, E, G
-      notes.forEach((freq, i) => {
+      [523, 659, 784].forEach((freq, i) => {
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.frequency.value = freq;
-        osc.type = "sine";
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = freq; osc.type = "sine";
         gain.gain.setValueAtTime(0.3, ctx.currentTime + i * 0.15);
         gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.15 + 0.3);
         osc.start(ctx.currentTime + i * 0.15);
         osc.stop(ctx.currentTime + i * 0.15 + 0.3);
       });
-    } catch (e) { console.log("Audio not available"); }
+    } catch (e) {}
   };
 
-  // ── Subscribe to orders ───────────────────────────────────────────────
   useEffect(() => {
-    const unsub = subscribeToOrders((newOrders) => {
+    const unsub = subscribeToOrders(branchId, (newOrders) => {
       setOrders(newOrders);
       const unseen = newOrders.filter(o => !o.seen && o.status === "pending").length;
       setNewOrderCount(unseen);
-      if (unseen > prevOrderCount.current) playNotificationSound();
-      prevOrderCount.current = unseen;
+      if (unseen > prevCount.current) playSound();
+      prevCount.current = unseen;
     });
     return () => unsub();
-  }, []);
+  }, [branchId]);
 
-  // ── Image upload ──────────────────────────────────────────────────────
   const handleImageUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -70,7 +64,8 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
     try {
       const compressed = await compressImage(file);
       setFormData(f => ({ ...f, image: compressed }));
-    } catch (err) { alert(err.message); }
+    }
+    catch (err) { alert(err.message); }
     setSaving(false);
   };
 
@@ -82,8 +77,8 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
     setSaving(true);
     try {
       const item = { ...formData, price: Number(formData.price) };
-      if (editItem) await updateMenuItem({ ...item, _docId: editItem });
-      else await addMenuItem(item);
+      if (editItem) await updateMenuItem(branchId, { ...item, _docId: editItem });
+      else await addMenuItem(branchId, item);
       setShowForm(false); setFormData(emptyItem); setEditItem(null);
     } catch (err) { alert("Error: " + err.message); }
     setSaving(false);
@@ -91,23 +86,22 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Delete "${item.name}"?`)) return;
-    try { await deleteMenuItem(item._docId); } catch (err) { alert(err.message); }
+    try { await deleteMenuItem(branchId, item._docId); } catch (err) { alert(err.message); }
   };
 
   const toggleAvailable = async (item) => {
-    try { await updateMenuItem({ ...item, available: item.available === false ? true : false }); }
-    catch (err) { alert(err.message); }
+    try { await updateMenuItem(branchId, { ...item, available: item.available === false }); } catch (err) { alert(err.message); }
   };
 
   const deleteCategory = async (cat) => {
     if (!window.confirm(`Delete all items in "${cat}"?`)) return;
-    for (const item of menuItems.filter(i => i.category === cat)) await deleteMenuItem(item._docId);
+    for (const item of menuItems.filter(i => i.category === cat)) await deleteMenuItem(branchId, item._docId);
   };
 
   const handleSaveSettings = async () => {
     setSaving(true);
     try {
-      await saveSettings({ ...settingsForm, whatsappNumber: settingsForm.whatsappNumber.replace(/\D/g, "") });
+      await saveSettings(branchId, { ...settingsForm, whatsappNumber: settingsForm.whatsappNumber.replace(/\D/g, "") });
       setSettingsSaved(true);
       setTimeout(() => setSettingsSaved(false), 2500);
     } catch (err) { alert(err.message); }
@@ -118,9 +112,7 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
     (filterCat === "All" || item.category === filterCat) &&
     item.name.toLowerCase().includes(searchQ.toLowerCase())
   );
-
   const filteredOrders = orders.filter(o => filterStatus === "all" || o.status === filterStatus);
-
   const todayTotal = orders
     .filter(o => o.status !== "done" && o.createdAt?.toDate?.().toDateString() === new Date().toDateString())
     .reduce((s, o) => s + (o.total || 0), 0);
@@ -132,25 +124,25 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
       {/* Header */}
       <div className="text-white px-5 py-4 flex items-center justify-between" style={{ background: "linear-gradient(135deg,#1a1a2e,#16213e)" }}>
         <div>
-          <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22 }} className="font-bold">⚙️ Admin Panel</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{settings.shopName} · 🔥 Live</p>
+          <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20 }} className="font-bold">⚙️ Admin Panel</h1>
+          <p className="text-xs text-gray-400">{settings.shopName} · {settings.branchName || branchId} · 🔥 Live</p>
         </div>
-        <button onClick={onExit} className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold transition">← Menu</button>
+        <button onClick={onExit} className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-semibold">← Menu</button>
       </div>
 
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 px-4 py-4">
         {[
           { label: "Items", value: menuItems.length, emoji: "🍽️" },
-          { label: "Orders", value: orders.filter(o => o.status !== "done").length, emoji: "📋" },
+          { label: "Active", value: orders.filter(o => o.status !== "done").length, emoji: "📋" },
           { label: "New", value: newOrderCount, emoji: "🔔", highlight: newOrderCount > 0 },
-          { label: "Today ₹", value: todayTotal, emoji: "💰" },
-        ].map(stat => (
-          <div key={stat.label} className="bg-white rounded-2xl p-3 text-center shadow-sm"
-            style={{ border: stat.highlight ? "2px solid #FF6B35" : "none", background: stat.highlight ? "#FFF8F0" : "#fff" }}>
-            <span className="text-xl">{stat.emoji}</span>
-            <p className="font-black text-xl text-gray-800" style={{ color: stat.highlight ? "#FF6B35" : undefined }}>{stat.value}</p>
-            <p className="text-xs text-gray-400">{stat.label}</p>
+          { label: "₹ Today", value: todayTotal, emoji: "💰" },
+        ].map(s => (
+          <div key={s.label} className="bg-white rounded-2xl p-3 text-center shadow-sm"
+            style={{ border: s.highlight ? "2px solid #FF6B35" : "none", background: s.highlight ? "#FFF8F0" : "#fff" }}>
+            <span className="text-xl">{s.emoji}</span>
+            <p className="font-black text-lg" style={{ color: s.highlight ? "#FF6B35" : "#1f2937" }}>{s.value}</p>
+            <p className="text-xs text-gray-400">{s.label}</p>
           </div>
         ))}
       </div>
@@ -161,14 +153,14 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
           { id: "orders", label: "📋 Orders", badge: newOrderCount },
           { id: "items", label: "🍽️ Items" },
           { id: "categories", label: "📂 Cats" },
-          { id: "settings", label: "⚙️" },
+          { id: "settings", label: "⚙️ Settings" },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className="flex-1 py-2 rounded-xl font-bold text-xs transition relative"
             style={{ background: activeTab === tab.id ? "linear-gradient(135deg,#FF6B35,#FF8C42)" : "transparent", color: activeTab === tab.id ? "#fff" : "#888" }}>
             {tab.label}
             {tab.badge > 0 && (
-              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-black">
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs w-5 h-5 rounded-full flex items-center justify-center font-black animate-pulse">
                 {tab.badge}
               </span>
             )}
@@ -178,10 +170,9 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
 
       <div className="px-4 pb-20">
 
-        {/* ── ORDERS TAB ──────────────────────────────────────────────── */}
+        {/* ── ORDERS ────────────────────────────────────────────────── */}
         {activeTab === "orders" && (
           <>
-            {/* Status filter */}
             <div className="flex gap-2 overflow-x-auto pb-2 mb-4" style={{ scrollbarWidth: "none" }}>
               {[
                 { id: "all", label: "All", count: orders.length },
@@ -191,7 +182,7 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
                 { id: "done", label: "🏁 Done", count: orders.filter(o => o.status === "done").length },
               ].map(s => (
                 <button key={s.id} onClick={() => setFilterStatus(s.id)}
-                  className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition border-2"
+                  className="px-3 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap border-2 transition"
                   style={{ background: filterStatus === s.id ? "#FF6B35" : "#fff", color: filterStatus === s.id ? "#fff" : "#666", borderColor: filterStatus === s.id ? "#FF6B35" : "#e5e7eb" }}>
                   {s.label} ({s.count})
                 </button>
@@ -202,7 +193,7 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
               <div className="text-center py-20">
                 <span className="text-5xl">📋</span>
                 <p className="text-gray-400 mt-4 font-semibold">No orders yet</p>
-                <p className="text-gray-300 text-sm">Orders will appear here in real-time</p>
+                <p className="text-gray-300 text-sm">Orders appear here in real-time</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -212,8 +203,6 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
                   return (
                     <div key={order._docId} className="bg-white rounded-2xl shadow-sm overflow-hidden"
                       style={{ border: !order.seen && order.status === "pending" ? "2px solid #FF6B35" : "1px solid #f0f0f0" }}>
-
-                      {/* Order header */}
                       <div className="flex items-center justify-between px-4 py-3" style={{ background: st.bg }}>
                         <div>
                           <div className="flex items-center gap-2">
@@ -222,67 +211,52 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
                               <span className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-full font-bold animate-pulse">NEW</span>
                             )}
                           </div>
-                          <p className="text-xs text-gray-500">{time ? time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""} · {time ? time.toLocaleDateString() : ""}</p>
+                          <p className="text-xs text-gray-500">{time ? `${time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} · ${time.toLocaleDateString()}` : ""}</p>
                         </div>
                         <span className="font-black text-lg" style={{ color: "#FF6B35" }}>₹{order.total}</span>
                       </div>
 
-                      {/* Customer info */}
                       <div className="px-4 py-3 border-b border-gray-50">
-                        <div className="flex items-center gap-4">
+                        <div className="flex items-center justify-between">
                           <div>
                             <p className="font-bold text-sm text-gray-800">👤 {order.customerName}</p>
                             <p className="text-xs text-gray-500">📞 {order.customerPhone}</p>
+                            {order.paymentMethod && <p className="text-xs text-gray-400 mt-0.5">💳 {order.paymentMethod === "upi" ? "UPI Paid" : "WhatsApp COD"}</p>}
                           </div>
-                          <div className="ml-auto flex gap-2">
-                            <a href={`tel:${order.customerPhone}`}
-                              className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-500 hover:bg-blue-100">
-                              📞 Call
-                            </a>
+                          <div className="flex gap-2">
+                            <a href={`tel:${order.customerPhone}`} className="px-3 py-1.5 rounded-xl text-xs font-bold bg-blue-50 text-blue-500">📞 Call</a>
                             <a href={`https://wa.me/91${order.customerPhone}?text=${encodeURIComponent(`Hi ${order.customerName}! Your order ${order.orderId} is ${order.status}.`)}`}
                               target="_blank" rel="noreferrer"
-                              className="px-3 py-1.5 rounded-xl text-xs font-bold text-white"
-                              style={{ background: "#25D366" }}>
+                              className="px-3 py-1.5 rounded-xl text-xs font-bold text-white" style={{ background: "#25D366" }}>
                               💬 WA
                             </a>
                           </div>
                         </div>
-                        {order.paymentMethod && (
-                          <p className="text-xs mt-1 text-gray-400">💳 {order.paymentMethod === "upi" ? "Paid via UPI" : "WhatsApp COD"}</p>
-                        )}
                       </div>
 
-                      {/* Items */}
                       <div className="px-4 py-3 border-b border-gray-50">
                         {order.items?.map((item, i) => (
                           <div key={i} className="flex justify-between text-sm py-0.5">
                             <span className="text-gray-600">{item.name} × {item.qty}</span>
-                            <span className="font-bold text-gray-700">₹{item.total}</span>
+                            <span className="font-bold">₹{item.total}</span>
                           </div>
                         ))}
                         {order.note && <p className="text-xs text-orange-500 mt-1 font-semibold">📝 {order.note}</p>}
                       </div>
 
-                      {/* Status controls */}
                       <div className="px-4 py-3">
                         <p className="text-xs text-gray-400 mb-2 font-semibold">UPDATE STATUS:</p>
                         <div className="flex gap-2 flex-wrap">
                           {Object.entries(STATUS_CONFIG).map(([key, val]) => (
                             <button key={key}
-                              onClick={() => updateOrderStatus(order._docId, key)}
+                              onClick={() => updateOrderStatus(branchId, order._docId, order.customerPhone, key)}
                               className="px-3 py-1.5 rounded-xl text-xs font-bold transition"
-                              style={{
-                                background: order.status === key ? val.bg : "#f3f4f6",
-                                color: order.status === key ? val.color : "#888",
-                                border: order.status === key ? `2px solid ${val.color}` : "2px solid transparent",
-                              }}>
+                              style={{ background: order.status === key ? val.bg : "#f3f4f6", color: order.status === key ? val.color : "#888", border: order.status === key ? `2px solid ${val.color}` : "2px solid transparent" }}>
                               {val.emoji} {val.label}
                             </button>
                           ))}
-                          <button onClick={() => deleteOrder(order._docId)}
-                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-50 text-red-400 hover:bg-red-100 ml-auto">
-                            🗑️ Delete
-                          </button>
+                          <button onClick={() => deleteOrder(branchId, order._docId)}
+                            className="px-3 py-1.5 rounded-xl text-xs font-bold bg-red-50 text-red-400 ml-auto">🗑️</button>
                         </div>
                       </div>
                     </div>
@@ -293,13 +267,13 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
           </>
         )}
 
-        {/* ── ITEMS TAB ─────────────────────────────────────────────── */}
+        {/* ── ITEMS ─────────────────────────────────────────────────── */}
         {activeTab === "items" && (
           <>
             <div className="flex gap-2 mb-4">
-              <input placeholder="🔍 Search items..." value={searchQ} onChange={e => setSearchQ(e.target.value)}
+              <input placeholder="🔍 Search..." value={searchQ} onChange={e => setSearchQ(e.target.value)}
                 className="flex-1 border-2 border-gray-100 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-300" />
-              <button onClick={openAdd} className="px-5 py-2.5 rounded-xl text-white font-bold text-sm whitespace-nowrap"
+              <button onClick={openAdd} className="px-5 py-2.5 rounded-xl text-white font-bold text-sm"
                 style={{ background: "linear-gradient(135deg,#FF6B35,#FF8C42)" }}>+ Add</button>
             </div>
             <div className="flex gap-2 overflow-x-auto pb-2 mb-4" style={{ scrollbarWidth: "none" }}>
@@ -318,7 +292,7 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
                     {item.image ? <img src={item.image} alt={item.name} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-2xl">🍽️</div>}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm text-gray-800 truncate">{item.name}</p>
+                    <p className="font-bold text-sm truncate">{item.name}</p>
                     <p className="text-xs text-gray-400 truncate">{item.category}</p>
                     <p className="text-orange-500 font-black text-sm">₹{item.price}</p>
                   </div>
@@ -336,7 +310,7 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
           </>
         )}
 
-        {/* ── CATEGORIES TAB ────────────────────────────────────────── */}
+        {/* ── CATEGORIES ────────────────────────────────────────────── */}
         {activeTab === "categories" && (
           <>
             <div className="flex gap-2 mb-4">
@@ -350,10 +324,7 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
                 const count = menuItems.filter(i => i.category === cat).length;
                 return (
                   <div key={cat} className="bg-white rounded-2xl p-4 flex items-center justify-between shadow-sm">
-                    <div>
-                      <p className="font-bold text-gray-800">{cat}</p>
-                      <p className="text-xs text-gray-400">{count} item{count !== 1 ? "s" : ""}</p>
-                    </div>
+                    <div><p className="font-bold">{cat}</p><p className="text-xs text-gray-400">{count} items</p></div>
                     <div className="flex gap-2">
                       <button onClick={() => { setActiveTab("items"); setFilterCat(cat); }} className="text-xs px-3 py-1.5 rounded-lg bg-orange-50 text-orange-500 font-semibold">View</button>
                       <button onClick={() => deleteCategory(cat)} className="text-xs px-3 py-1.5 rounded-lg bg-red-50 text-red-400 font-semibold">🗑️</button>
@@ -365,29 +336,35 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
           </>
         )}
 
-        {/* ── SETTINGS TAB ──────────────────────────────────────────── */}
+        {/* ── SETTINGS ──────────────────────────────────────────────── */}
         {activeTab === "settings" && (
           <div className="space-y-4 max-w-lg">
             {[
-              { key: "shopName", label: "🏪 Shop Name", placeholder: "My Cafe" },
+              { key: "shopName", label: "🏪 Shop Name", placeholder: "PastryInn" },
+              { key: "branchName", label: "🏢 Branch Name", placeholder: "e.g. Main Branch / Velachery" },
               { key: "whatsappNumber", label: "📱 WhatsApp Number", placeholder: "919037650365" },
-              { key: "contactPhone", label: "📞 Contact Phone (shown to customers)", placeholder: "9999999999" },
+              { key: "contactPhone", label: "📞 Contact Phone", placeholder: "9999999999" },
               { key: "upiId", label: "💳 UPI ID", placeholder: "yourname@paytm" },
               { key: "adminPass", label: "🔐 Admin Password", placeholder: "Change password" },
             ].map(field => (
               <div key={field.key} className="bg-white rounded-2xl p-4 shadow-sm">
                 <label className="block text-sm font-bold text-gray-700 mb-2">{field.label}</label>
-                <input
-                  type={field.key === "adminPass" ? "password" : "text"}
+                <input type={field.key === "adminPass" ? "password" : "text"}
                   value={settingsForm[field.key] || ""}
                   onChange={e => setSettingsForm(f => ({ ...f, [field.key]: e.target.value }))}
                   placeholder={field.placeholder}
-                  className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300"
-                />
+                  className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300" />
               </div>
             ))}
+            <div className="bg-blue-50 rounded-2xl p-4 text-sm text-blue-700">
+              <p className="font-bold mb-1">🏪 Branch URLs</p>
+              <p className="text-xs mb-1">Share these links with each branch:</p>
+              <p className="text-xs font-mono bg-white rounded-lg px-3 py-1.5 mb-1">yoursite.vercel.app/?branch=branch1</p>
+              <p className="text-xs font-mono bg-white rounded-lg px-3 py-1.5 mb-1">yoursite.vercel.app/?branch=branch2</p>
+              <p className="text-xs font-mono bg-white rounded-lg px-3 py-1.5">yoursite.vercel.app/?branch=branch3</p>
+            </div>
             <button onClick={handleSaveSettings} disabled={saving}
-              className="w-full py-4 rounded-2xl text-white font-black text-base transition hover:brightness-110"
+              className="w-full py-4 rounded-2xl text-white font-black text-base hover:brightness-110"
               style={{ background: settingsSaved ? "#16a34a" : "linear-gradient(135deg,#FF6B35,#FF8C42)", opacity: saving ? 0.7 : 1 }}>
               {saving ? "Saving..." : settingsSaved ? "✓ Saved!" : "Save Settings"}
             </button>
@@ -400,70 +377,62 @@ export default function AdminPanel({ menuItems, settings, onExit }) {
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b flex items-center justify-between rounded-t-3xl z-10">
-              <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-xl font-bold">{editItem ? "✏️ Edit Item" : "➕ Add Item"}</h2>
+              <h2 style={{ fontFamily: "'Playfair Display', serif" }} className="text-xl font-bold">{editItem ? "✏️ Edit" : "➕ Add Item"}</h2>
               <button onClick={() => setShowForm(false)} className="w-9 h-9 rounded-full bg-gray-100 flex items-center justify-center font-bold">✕</button>
             </div>
             <div className="px-6 py-5 space-y-4">
-              {/* Image */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">📸 Image</label>
                 {formData.image ? (
                   <div className="relative w-full h-40 rounded-2xl overflow-hidden group">
                     <img src={formData.image} alt="preview" className="w-full h-full object-cover" />
                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition flex items-center justify-center gap-3">
-                      <label className="cursor-pointer bg-white text-gray-800 px-4 py-2 rounded-xl font-semibold text-sm">
-                        Change<input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-                      </label>
+                      <label className="cursor-pointer bg-white px-4 py-2 rounded-xl font-semibold text-sm">Change<input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} /></label>
                       <button onClick={() => setFormData(f => ({ ...f, image: "" }))} className="bg-red-500 text-white px-4 py-2 rounded-xl font-semibold text-sm">Remove</button>
                     </div>
                   </div>
                 ) : (
                   <label className="flex flex-col items-center justify-center w-full h-36 rounded-2xl border-2 border-dashed border-orange-300 bg-orange-50 cursor-pointer hover:bg-orange-100 transition">
-                    {saving ? <span className="text-orange-400 font-semibold text-sm">Compressing...</span> : (<><span className="text-3xl mb-1">📸</span><span className="text-sm text-orange-500 font-semibold">Click to upload</span><span className="text-xs text-orange-300">Any size — auto compressed</span></>)}
+                    {saving ? <span className="text-orange-400 font-semibold text-sm">Compressing...</span> : (<><span className="text-3xl mb-1">📸</span><span className="text-sm text-orange-500 font-semibold">Upload image</span><span className="text-xs text-orange-300">Any size — auto compressed</span></>)}
                     <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
                   </label>
                 )}
               </div>
-
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Name *</label>
-                <input placeholder="Item name" value={formData.name} onChange={e => setFormData(f => ({ ...f, name: e.target.value }))}
+                <label className="block text-sm font-bold mb-1">Name *</label>
+                <input value={formData.name} onChange={e => setFormData(f => ({ ...f, name: e.target.value }))} placeholder="Item name"
                   className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300" />
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">Description</label>
-                <textarea placeholder="Brief description..." value={formData.desc} onChange={e => setFormData(f => ({ ...f, desc: e.target.value }))}
-                  rows={2} className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300 resize-none" />
+                <label className="block text-sm font-bold mb-1">Description</label>
+                <textarea value={formData.desc} onChange={e => setFormData(f => ({ ...f, desc: e.target.value }))} rows={2}
+                  className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300 resize-none" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Price (₹) *</label>
-                  <input type="number" placeholder="150" value={formData.price} onChange={e => setFormData(f => ({ ...f, price: e.target.value }))}
+                  <label className="block text-sm font-bold mb-1">Price (₹) *</label>
+                  <input type="number" value={formData.price} onChange={e => setFormData(f => ({ ...f, price: e.target.value }))}
                     className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300" />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">Category *</label>
-                  <input placeholder="e.g. Burgers" value={formData.category} onChange={e => setFormData(f => ({ ...f, category: e.target.value }))}
-                    list="cat-opts" className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300" />
-                  <datalist id="cat-opts">{categories.map(c => <option key={c} value={c} />)}</datalist>
+                  <label className="block text-sm font-bold mb-1">Category *</label>
+                  <input value={formData.category} onChange={e => setFormData(f => ({ ...f, category: e.target.value }))} list="cats"
+                    className="w-full border-2 border-gray-100 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-300" />
+                  <datalist id="cats">{categories.map(c => <option key={c} value={c} />)}</datalist>
                 </div>
               </div>
-
               <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4">
-                <div><p className="font-bold text-sm">Available on Menu</p><p className="text-xs text-gray-400">Hidden items won't show</p></div>
+                <div><p className="font-bold text-sm">Available</p><p className="text-xs text-gray-400">Hidden items won't show</p></div>
                 <button onClick={() => setFormData(f => ({ ...f, available: !f.available }))}
-                  className="w-12 h-6 rounded-full relative transition-all"
-                  style={{ background: formData.available !== false ? "#FF6B35" : "#d1d5db" }}>
+                  className="w-12 h-6 rounded-full relative" style={{ background: formData.available !== false ? "#FF6B35" : "#d1d5db" }}>
                   <span className="absolute top-0.5 w-5 h-5 bg-white rounded-full shadow transition-all"
                     style={{ left: formData.available !== false ? "calc(100% - 1.4rem)" : "2px" }} />
                 </button>
               </div>
-
               <div className="flex gap-3 pt-2">
-                <button onClick={saveItem} disabled={saving}
-                  className="flex-1 py-4 rounded-2xl text-white font-black transition hover:brightness-110"
+                <button onClick={saveItem} disabled={saving} className="flex-1 py-4 rounded-2xl text-white font-black hover:brightness-110"
                   style={{ background: "linear-gradient(135deg,#FF6B35,#FF8C42)", opacity: saving ? 0.7 : 1 }}>
-                  {saving ? "Saving..." : editItem ? "Save Changes" : "Add Item ✓"}
+                  {saving ? "Saving..." : editItem ? "Save" : "Add ✓"}
                 </button>
                 <button onClick={() => setShowForm(false)} className="flex-1 py-4 rounded-2xl bg-gray-100 font-bold text-gray-600">Cancel</button>
               </div>
