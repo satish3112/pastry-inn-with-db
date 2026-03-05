@@ -1,13 +1,3 @@
-// ─────────────────────────────────────────────────────────────
-//  🔥 FIREBASE CONFIGURATION
-//  Replace the values below with YOUR Firebase project config.
-//  How to get them:
-//    1. Go to https://console.firebase.google.com
-//    2. Create a project (or open existing)
-//    3. Click ⚙️ Project Settings → Your apps → Add app (Web)
-//    4. Copy the firebaseConfig object and paste here
-// ─────────────────────────────────────────────────────────────
-
 import { initializeApp } from "firebase/app";
 import {
   getFirestore,
@@ -21,16 +11,10 @@ import {
   deleteDoc,
   onSnapshot,
   writeBatch,
+  query,
+  orderBy,
+  serverTimestamp,
 } from "firebase/firestore";
-
-// const firebaseConfig = {
-//   apiKey: "REPLACE_WITH_YOUR_API_KEY",
-//   authDomain: "REPLACE_WITH_YOUR_AUTH_DOMAIN",
-//   projectId: "REPLACE_WITH_YOUR_PROJECT_ID",
-//   storageBucket: "REPLACE_WITH_YOUR_STORAGE_BUCKET",
-//   messagingSenderId: "REPLACE_WITH_YOUR_MESSAGING_SENDER_ID",
-//   appId: "REPLACE_WITH_YOUR_APP_ID",
-// };
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -41,104 +25,138 @@ const firebaseConfig = {
   appId: process.env.REACT_APP_FIREBASE_APP_ID,
 };
 
-// Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// ─────────────────────────────────────────────────────────────
-//  COLLECTION / DOC NAMES
-// ─────────────────────────────────────────────────────────────
-const MENU_COLLECTION = "menuItems";
-const SETTINGS_DOC    = "settings/shopSettings";
+const MENU_COLLECTION   = "menuItems";
+const ORDERS_COLLECTION = "orders";
+const SETTINGS_DOC      = "settings/shopSettings";
 
 // ─────────────────────────────────────────────────────────────
 //  MENU ITEMS
 // ─────────────────────────────────────────────────────────────
-
-/** Listen to all menu items in real-time */
 export function subscribeToMenu(callback) {
   const ref = collection(db, MENU_COLLECTION);
   return onSnapshot(ref, (snapshot) => {
     const items = snapshot.docs.map(d => ({ ...d.data(), _docId: d.id }));
-    // sort by id (number) so order is stable
     items.sort((a, b) => a.id - b.id);
     callback(items);
   });
 }
 
-/** Add a brand-new item */
 export async function addMenuItem(item) {
   const ref = collection(db, MENU_COLLECTION);
   const docRef = await addDoc(ref, item);
   return docRef.id;
 }
 
-/** Update an existing item (matched by _docId) */
 export async function updateMenuItem(item) {
   const { _docId, ...data } = item;
-  const ref = doc(db, MENU_COLLECTION, _docId);
-  await updateDoc(ref, data);
+  await updateDoc(doc(db, MENU_COLLECTION, _docId), data);
 }
 
-/** Delete an item by _docId */
 export async function deleteMenuItem(_docId) {
   await deleteDoc(doc(db, MENU_COLLECTION, _docId));
 }
 
-// /** Seed the database with initial data (only runs if collection is empty) */
-// export async function seedMenuIfEmpty(initialItems) {
-//   const snapshot = await getDocs(collection(db, MENU_COLLECTION));
-//   if (!snapshot.empty) return; // already seeded
-
-//   const batch = writeBatch(db);
-//   initialItems.forEach(item => {
-//     const ref = doc(collection(db, MENU_COLLECTION));
-//     batch.set(ref, item);
-//   });
-//   await batch.commit();
-//   console.log("✅ Menu seeded to Firebase!");
-// }
 export async function seedMenuIfEmpty(initialItems) {
   const snapshot = await getDocs(collection(db, MENU_COLLECTION));
-  if (snapshot.size > 0) return; // already has data, stop
-
-  // Use a lock in localStorage to prevent double seeding
+  if (snapshot.size > 0) return;
   if (localStorage.getItem("seeded") === "true") return;
   localStorage.setItem("seeded", "true");
-
   const batch = writeBatch(db);
   initialItems.forEach(item => {
-    const ref = doc(collection(db, MENU_COLLECTION));
-    batch.set(ref, item);
+    batch.set(doc(collection(db, MENU_COLLECTION)), item);
   });
   await batch.commit();
-  console.log("✅ Menu seeded to Firebase!");
 }
 
 // ─────────────────────────────────────────────────────────────
-//  SHOP SETTINGS
+//  ORDERS
 // ─────────────────────────────────────────────────────────────
 
-/** Listen to shop settings in real-time */
+/** Generate a short readable order ID e.g. ORD-4829 */
+export function generateOrderId() {
+  return "ORD-" + Math.floor(1000 + Math.random() * 9000);
+}
+
+/** Save a new order to Firestore */
+export async function placeOrder(orderData) {
+  const ref = collection(db, ORDERS_COLLECTION);
+  const docRef = await addDoc(ref, {
+    ...orderData,
+    status: "pending",       // pending | preparing | ready | done
+    createdAt: serverTimestamp(),
+    seen: false,             // admin has seen this order?
+  });
+  return docRef.id;
+}
+
+/** Listen to all orders in real-time (for admin) */
+export function subscribeToOrders(callback) {
+  const ref = query(collection(db, ORDERS_COLLECTION), orderBy("createdAt", "desc"));
+  return onSnapshot(ref, (snapshot) => {
+    const orders = snapshot.docs.map(d => ({ ...d.data(), _docId: d.id }));
+    callback(orders);
+  });
+}
+
+/** Update order status */
+export async function updateOrderStatus(_docId, status) {
+  await updateDoc(doc(db, ORDERS_COLLECTION, _docId), { status, seen: true });
+}
+
+/** Mark order as seen (removes notification badge) */
+export async function markOrderSeen(_docId) {
+  await updateDoc(doc(db, ORDERS_COLLECTION, _docId), { seen: true });
+}
+
+/** Delete old done orders */
+export async function deleteOrder(_docId) {
+  await deleteDoc(doc(db, ORDERS_COLLECTION, _docId));
+}
+
+// ─────────────────────────────────────────────────────────────
+//  SETTINGS
+// ─────────────────────────────────────────────────────────────
 export function subscribeToSettings(callback) {
-  const ref = doc(db, SETTINGS_DOC);
-  return onSnapshot(ref, (snap) => {
+  return onSnapshot(doc(db, SETTINGS_DOC), (snap) => {
     if (snap.exists()) callback(snap.data());
   });
 }
 
-/** Save / update shop settings */
 export async function saveSettings(settings) {
-  const ref = doc(db, SETTINGS_DOC);
-  await setDoc(ref, settings, { merge: true });
+  await setDoc(doc(db, SETTINGS_DOC), settings, { merge: true });
 }
 
-/** Seed default settings if none exist */
 export async function seedSettingsIfEmpty(defaults) {
-  const ref = doc(db, SETTINGS_DOC);
-  const snap = await getDoc(ref);
-  if (!snap.exists()) {
-    await setDoc(ref, defaults);
-    console.log("✅ Settings seeded to Firebase!");
-  }
+  const snap = await getDoc(doc(db, SETTINGS_DOC));
+  if (!snap.exists()) await setDoc(doc(db, SETTINGS_DOC), defaults);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  IMAGE COMPRESS (free — no Firebase Storage needed)
+// ─────────────────────────────────────────────────────────────
+export function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 5 * 1024 * 1024) { reject(new Error("Image too large. Max 5MB.")); return; }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        const MAX = 600;
+        let w = img.width, h = img.height;
+        if (w > h && w > MAX) { h = (h * MAX) / w; w = MAX; }
+        else if (h > MAX) { w = (w * MAX) / h; h = MAX; }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
