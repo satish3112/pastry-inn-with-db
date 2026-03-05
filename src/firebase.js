@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import {
   getFirestore, doc, getDoc, setDoc, collection,
   getDocs, addDoc, updateDoc, deleteDoc, onSnapshot,
-  writeBatch, query, orderBy, where, serverTimestamp,
+  writeBatch, query, orderBy, serverTimestamp
 } from "firebase/firestore";
 
 const firebaseConfig = {
