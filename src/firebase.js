@@ -30,6 +30,11 @@ export const db = getFirestore(app);
  *  Falls back to "branch1" if not specified
  */
 export function getBranchId() {
+  // 1. Use environment variable (set in Vercel per project)
+  if (process.env.REACT_APP_BRANCH_ID) {
+    return process.env.REACT_APP_BRANCH_ID;
+  }
+  // 2. Fallback to URL param e.g. ?branch=branch2
   const params = new URLSearchParams(window.location.search);
   return params.get("branch") || "branch1";
 }
