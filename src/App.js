@@ -4,6 +4,8 @@ import MenuList from "./components/MenuList";
 import Cart from "./components/Cart";
 import AdminPanel from "./components/AdminPanel";
 import MyOrders from "./components/MyOrders";
+import Footer from "./components/Footer";
+import Account from "./components/Account";
 import initialMenuData from "./data/menuData";
 import {
   getBranchId,
@@ -12,6 +14,7 @@ import {
   subscribeToOrders,
   seedMenuIfEmpty,
   seedSettingsIfEmpty,
+  requestNotificationPermission,
 } from "./firebase";
 
 const BRANCH_ID = getBranchId();
@@ -42,23 +45,25 @@ export default function App() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [loginInput, setLoginInput] = useState("");
   const [loginError, setLoginError] = useState("");
+  const [activeFooterTab, setActiveFooterTab] = useState("home");
+  const [accountOpen, setAccountOpen] = useState(false);
 
-  // Saved orders count for badge
+  // Saved orders count for footer badge
   const getSavedCount = () => {
     try { return JSON.parse(localStorage.getItem(`myOrders_${BRANCH_ID}`) || "[]").length; }
     catch { return 0; }
   };
   const [savedCount, setSavedCount] = useState(getSavedCount);
 
-  // ── Lock body scroll when any drawer is open ──────────────────────────
+  // ── Lock body scroll when any drawer/modal is open ────────────────────
   useEffect(() => {
-    if (cartOpen || myOrdersOpen || loginOpen) {
+    if (cartOpen || myOrdersOpen || loginOpen || accountOpen) {
       document.body.style.overflow = "hidden";
     } else {
       document.body.style.overflow = "";
     }
     return () => { document.body.style.overflow = ""; };
-  }, [cartOpen, myOrdersOpen, loginOpen]);
+  }, [cartOpen, myOrdersOpen, loginOpen, accountOpen]);
 
   // ── Firebase init ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -83,6 +88,7 @@ export default function App() {
       }
     }
     init();
+    requestNotificationPermission();
     return () => {
       if (unsubMenu) unsubMenu();
       if (unsubSettings) unsubSettings();
@@ -125,7 +131,16 @@ export default function App() {
     }
   };
 
-  // ── Loading ───────────────────────────────────────────────────────────
+  // ── Footer tab handler ────────────────────────────────────────────────
+  const handleFooterTab = (tab) => {
+    setActiveFooterTab(tab);
+    if (tab === "home")    { setCartOpen(false); setMyOrdersOpen(false); setAccountOpen(false); }
+    if (tab === "cart")    { setCartOpen(true);  setMyOrdersOpen(false); setAccountOpen(false); }
+    if (tab === "orders")  { setMyOrdersOpen(true);  setCartOpen(false); setAccountOpen(false); }
+    if (tab === "account") { setAccountOpen(true); setCartOpen(false); setMyOrdersOpen(false); }
+  };
+
+  // ── Loading screen ────────────────────────────────────────────────────
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#FFF8F0" }}>
       <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
@@ -169,7 +184,7 @@ export default function App() {
           >
             <div className="absolute inset-0 bg-black/40" />
 
-            {/* Logo + name + search */}
+            {/* Logo + shop name + search bar */}
             <div className="relative z-10">
               <img src="/Logo.png" alt="Logo" className="mx-auto h-20 mb-3 drop-shadow-xl" />
               <h1 style={{ fontFamily: "'Playfair Display', serif", color: "#fff", fontSize: 28, textShadow: "0 2px 8px rgba(0,0,0,0.5)" }}>
@@ -189,7 +204,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Top-left: Cart */}
+            {/* Top-left: Cart button */}
             <button
               onClick={() => setCartOpen(true)}
               className="absolute top-4 left-4 z-20 flex items-center gap-2 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg transition"
@@ -202,37 +217,25 @@ export default function App() {
               <span>Cart</span>
             </button>
 
-            {/* Top-right: Admin (no badge visible to customers) */}
+            {/* Top-right: Admin — nearly invisible so customers don't notice */}
             <button
               onClick={() => setLoginOpen(true)}
-              className="absolute top-4 right-4 z-20 bg-white/10 hover:bg-white/20 text-white/60 px-3 py-1.5 rounded-full text-xs font-semibold backdrop-blur-sm transition"
+              className="absolute top-4 right-4 z-20 w-8 h-8 flex items-center justify-center rounded-full"
+              style={{ background: "rgba(255,255,255,0.05)" }}
             >
-              🔐
-            </button>
-
-            {/* Bottom-right: My Orders — customer facing */}
-            <button
-              onClick={() => setMyOrdersOpen(true)}
-              className="absolute bottom-4 right-4 z-20 flex items-center gap-2 text-white px-4 py-2 rounded-full text-xs font-bold shadow-lg transition"
-              style={{ background: savedCount > 0 ? "#FF6B35" : "rgba(255,255,255,0.25)", backdropFilter: "blur(8px)" }}
-            >
-              📋 My Orders
-              {savedCount > 0 && (
-                <span className="bg-white text-orange-500 rounded-full px-2 py-0.5 text-xs font-black">{savedCount}</span>
-              )}
+              <span style={{ fontSize: 10, opacity: 0.3, color: "#fff" }}>⚙</span>
             </button>
           </div>
 
-          {/* MENU */}
-          <div className="px-4 pt-5 pb-24 max-w-6xl mx-auto">
+          {/* MENU LIST — pb-32 so content isn't hidden behind footer */}
+          <div className="px-4 pt-5 pb-32 max-w-6xl mx-auto">
             <Categories categories={categories} selected={selected} setSelected={setSelected} />
             <MenuList items={filtered} cart={cart} addToCart={addToCart} updateQty={updateQty} />
           </div>
 
-          {/* STICKY CART BAR */}
+          {/* STICKY CART BAR — sits just above footer */}
           {cartCount > 0 && !cartOpen && (
-            <div className="fixed bottom-0 left-0 right-0 z-40 p-4"
-              style={{ background: "linear-gradient(transparent, #FFF8F0 60%)" }}>
+            <div className="fixed bottom-16 left-0 right-0 z-20 px-4 pb-2">
               <button
                 onClick={() => setCartOpen(true)}
                 className="w-full max-w-md mx-auto flex items-center justify-between px-6 py-4 rounded-2xl text-white font-bold shadow-2xl hover:brightness-110"
@@ -250,7 +253,7 @@ export default function App() {
             <Cart
               cart={cart}
               cartTotal={cartTotal}
-              onClose={() => setCartOpen(false)}
+              onClose={() => { setCartOpen(false); setActiveFooterTab("home"); }}
               onUpdateQty={updateQty}
               onClear={clearCart}
               onOrderPlaced={handleOrderPlaced}
@@ -265,9 +268,21 @@ export default function App() {
           {/* MY ORDERS DRAWER */}
           {myOrdersOpen && (
             <MyOrders
-              onClose={() => setMyOrdersOpen(false)}
+              onClose={() => { setMyOrdersOpen(false); setActiveFooterTab("home"); }}
               settings={settings}
               branchId={BRANCH_ID}
+            />
+          )}
+
+          {/* ACCOUNT DRAWER */}
+          {accountOpen && (
+            <Account
+              onClose={() => { setAccountOpen(false); setActiveFooterTab("home"); }}
+              onOpenOrders={() => { setAccountOpen(false); setMyOrdersOpen(true); setActiveFooterTab("orders"); }}
+              settings={settings}
+              cart={cart}
+              addToCart={addToCart}
+              updateQty={updateQty}
             />
           )}
 
@@ -307,6 +322,14 @@ export default function App() {
               </div>
             </div>
           )}
+
+          {/* FOOTER */}
+          <Footer
+            activeTab={activeFooterTab}
+            onTabChange={handleFooterTab}
+            cartCount={cartCount}
+            ordersCount={savedCount}
+          />
         </>
       )}
     </div>

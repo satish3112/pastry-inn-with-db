@@ -29,6 +29,64 @@ export const db = getFirestore(app);
 /** Get branch ID from URL query param e.g. ?branch=branch2
  *  Falls back to "branch1" if not specified
  */
+
+// ─────────────────────────────────────────────────────────────
+//  CUSTOMER ORDERS — Firebase based (permanent storage)
+// ─────────────────────────────────────────────────────────────
+
+/** Subscribe to all orders for a customer phone number */
+export function subscribeToCustomerOrdersByPhone(phoneNumber, callback) {
+  const ref = collection(db, "customerOrders", phoneNumber, "orders");
+  const q = query(ref, orderBy("createdAt", "desc"));
+  return onSnapshot(q, (snapshot) => {
+    callback(snapshot.docs.map(d => ({ ...d.data(), _docId: d.id })));
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+//  WISHLIST — localStorage based (simple, no Firebase cost)
+// ─────────────────────────────────────────────────────────────
+
+export function getWishlist() {
+  try { return JSON.parse(localStorage.getItem("wishlist") || "[]"); }
+  catch { return []; }
+}
+
+export function toggleWishlist(item) {
+  const list = getWishlist();
+  const exists = list.find(w => w.id === item.id);
+  const updated = exists ? list.filter(w => w.id !== item.id) : [...list, item];
+  localStorage.setItem("wishlist", JSON.stringify(updated));
+  return updated;
+}
+
+export function isWishlisted(itemId) {
+  return getWishlist().some(w => w.id === itemId);
+}
+
+// ─────────────────────────────────────────────────────────────
+//  BROWSER PUSH NOTIFICATIONS
+// ─────────────────────────────────────────────────────────────
+
+export async function requestNotificationPermission() {
+  if (!("Notification" in window)) return false;
+  if (Notification.permission === "granted") return true;
+  if (Notification.permission === "denied") return false;
+  const result = await Notification.requestPermission();
+  return result === "granted";
+}
+
+export function showBrowserNotification(title, body) {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  try {
+    new Notification(title, {
+      body,
+      icon: "/Logo.png",
+      badge: "/Logo.png",
+      vibrate: [200, 100, 200],
+    });
+  } catch (e) { console.log("Notification error", e); }
+}
 export function getBranchId() {
   // 1. Use environment variable (set in Vercel per project)
   if (process.env.REACT_APP_BRANCH_ID) {
