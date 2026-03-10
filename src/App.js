@@ -15,6 +15,9 @@ import {
   seedMenuIfEmpty,
   seedSettingsIfEmpty,
   requestNotificationPermission,
+  saveCartToFirebase,       // ← add this
+  loadCartFromFirebase,     // ← add this
+  subscribeToCustomerData,  // ← add this
 } from "./firebase";
 
 const BRANCH_ID = getBranchId();
@@ -38,7 +41,12 @@ export default function App() {
   // ── UI state ──────────────────────────────────────────────────────────
   const [selected, setSelected] = useState("All");
   const [search, setSearch] = useState("");
-  const [cart, setCart] = useState([]);
+  // const [cart, setCart] = useState([]);
+const [cart, setCart] = useState(() => {
+  try { return JSON.parse(localStorage.getItem("cart") || "[]"); }
+  catch { return []; }
+});
+const customerPhone = localStorage.getItem("customerPhone") || "";
   const [cartOpen, setCartOpen] = useState(false);
   const [myOrdersOpen, setMyOrdersOpen] = useState(false);
   const [view, setView] = useState("customer");
@@ -64,6 +72,26 @@ export default function App() {
     }
     return () => { document.body.style.overflow = ""; };
   }, [cartOpen, myOrdersOpen, loginOpen, accountOpen]);
+
+  // ── Sync cart with Firebase when customer phone is known ──────
+useEffect(() => {
+  if (!customerPhone) return;
+  // Load cart from Firebase on first open
+  loadCartFromFirebase(customerPhone).then(savedCart => {
+    if (savedCart.length > 0) setCart(savedCart);
+  });
+  // Subscribe to real-time changes (e.g. opened on another device)
+  const unsub = subscribeToCustomerData(customerPhone, (data) => {
+    if (data.cart) setCart(data.cart);
+  });
+  return () => unsub();
+}, [customerPhone]);
+
+// ── Save cart to Firebase whenever it changes ─────────────────
+useEffect(() => {
+  localStorage.setItem("cart", JSON.stringify(cart));
+  if (customerPhone) saveCartToFirebase(customerPhone, cart);
+}, [cart, customerPhone]);
 
   // ── Firebase init ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -140,6 +168,8 @@ export default function App() {
     if (tab === "account") { setAccountOpen(true); setCartOpen(false); setMyOrdersOpen(false); }
   };
 
+  
+
   // ── Loading screen ────────────────────────────────────────────────────
   if (loading) return (
     <div className="min-h-screen flex flex-col items-center justify-center" style={{ background: "#FFF8F0" }}>
@@ -204,7 +234,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* Top-left: Cart button */}
+            {/* Top-left: Cart button
             <button
               onClick={() => setCartOpen(true)}
               className="absolute top-4 left-4 z-20 flex items-center gap-2 text-white px-4 py-2 rounded-full text-sm font-bold shadow-lg transition"
@@ -215,7 +245,7 @@ export default function App() {
                 <span className="bg-white text-orange-500 rounded-full px-2 py-0.5 text-xs font-black">{cartCount}</span>
               )}
               <span>Cart</span>
-            </button>
+            </button> */}
 
             {/* Top-right: Admin — nearly invisible so customers don't notice */}
             <button

@@ -1,22 +1,47 @@
 import { useState, useEffect } from "react";
-import { getWishlist, toggleWishlist } from "../firebase";
+import {
+  getWishlist,
+  toggleWishlist,
+  saveWishlistToFirebase,
+  loadWishlistFromFirebase,
+} from "../firebase";
 
-export default function Account({ onClose, onOpenOrders, settings, cart, addToCart, updateQty }) {
+export default function Account({ onClose, onOpenOrders, settings, cart, addToCart, updateQty, onPhoneChange }) {
   const [activeSection, setActiveSection] = useState("main");
   const [wishlist, setWishlist] = useState(getWishlist());
   const [name, setName]   = useState(localStorage.getItem("customerName") || "");
   const [phone, setPhone] = useState(localStorage.getItem("customerPhone") || "");
   const [editMode, setEditMode] = useState(false);
 
+  // Load wishlist from Firebase when phone is known
+  useEffect(() => {
+    if (!phone) return;
+    loadWishlistFromFirebase(phone).then(saved => {
+      if (saved.length > 0) {
+        setWishlist(saved);
+        localStorage.setItem("wishlist", JSON.stringify(saved));
+      }
+    });
+  }, [phone]);
+
+  // Listen for local wishlist changes (heart button tapped)
+  useEffect(() => {
+    const refresh = () => setWishlist(getWishlist());
+    window.addEventListener("wishlistChanged", refresh);
+    return () => window.removeEventListener("wishlistChanged", refresh);
+  }, []);
+
   const saveProfile = () => {
     localStorage.setItem("customerName", name.trim());
     localStorage.setItem("customerPhone", phone.trim());
+    if (onPhoneChange) onPhoneChange(phone.trim());
     setEditMode(false);
   };
 
   const removeWishlist = (item) => {
     const updated = toggleWishlist(item);
     setWishlist(updated);
+    if (phone) saveWishlistToFirebase(phone, updated);
   };
 
   return (

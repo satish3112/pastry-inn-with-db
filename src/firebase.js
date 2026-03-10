@@ -252,3 +252,47 @@ export function compressImage(file) {
     reader.readAsDataURL(file);
   });
 }
+
+// ─────────────────────────────────────────────────────────────
+//  CART — Firebase based (permanent per customer phone)
+// ─────────────────────────────────────────────────────────────
+
+export async function saveCartToFirebase(phone, cart) {
+  if (!phone || phone.length < 10) return;
+  await setDoc(doc(db, "customerData", phone), { cart }, { merge: true });
+}
+
+export async function loadCartFromFirebase(phone) {
+  if (!phone || phone.length < 10) return [];
+  try {
+    const snap = await getDoc(doc(db, "customerData", phone));
+    if (snap.exists()) return snap.data().cart || [];
+    return [];
+  } catch { return []; }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  WISHLIST — Firebase based (permanent per customer phone)
+// ─────────────────────────────────────────────────────────────
+
+export async function saveWishlistToFirebase(phone, wishlist) {
+  if (!phone || phone.length < 10) return;
+  await setDoc(doc(db, "customerData", phone), { wishlist }, { merge: true });
+}
+
+export async function loadWishlistFromFirebase(phone) {
+  if (!phone || phone.length < 10) return [];
+  try {
+    const snap = await getDoc(doc(db, "customerData", phone));
+    if (snap.exists()) return snap.data().wishlist || [];
+    return [];
+  } catch { return []; }
+}
+
+export function subscribeToCustomerData(phone, callback) {
+  if (!phone || phone.length < 10) return () => {};
+  return onSnapshot(doc(db, "customerData", phone), (snap) => {
+    if (snap.exists()) callback(snap.data());
+    else callback({ cart: [], wishlist: [] });
+  });
+}
