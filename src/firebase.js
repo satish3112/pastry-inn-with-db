@@ -125,10 +125,29 @@ export async function updateMenuItem(branchId, item) {
 export async function deleteMenuItem(branchId, _docId) {
   await deleteDoc(doc(db, branchRef(branchId), "menuItems", _docId));
 }
-
 export async function seedMenuIfEmpty(branchId, initialItems) {
   const snapshot = await getDocs(menuCol(branchId));
-  if (snapshot.size > 0) return;
+
+  if (snapshot.size > 0) {
+    // Firebase has items — patch missing images automatically
+    const batch = writeBatch(db);
+    let needsUpdate = false;
+    snapshot.docs.forEach(d => {
+      const data = d.data();
+      const match = initialItems.find(i => i.id === data.id);
+      if (match && !data.image && match.image) {
+        batch.update(doc(menuCol(branchId), d.id), { image: match.image });
+        needsUpdate = true;
+      }
+    });
+    if (needsUpdate) {
+      await batch.commit();
+      console.log(`✅ Images patched for ${branchId}`);
+    }
+    return;
+  }
+
+  // Firebase is empty — do fresh seed
   const key = `seeded_${branchId}`;
   if (localStorage.getItem(key) === "true") return;
   localStorage.setItem(key, "true");
