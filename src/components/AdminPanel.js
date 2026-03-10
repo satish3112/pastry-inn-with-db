@@ -116,8 +116,18 @@ export default function AdminPanel({ menuItems, settings, branchId, onExit }) {
     item.name.toLowerCase().includes(searchQ.toLowerCase())
   );
   const filteredOrders = orders.filter(o => filterStatus === "all" || o.status === filterStatus);
+    const today = new Date();
   const todayTotal = orders
-    .filter(o => o.status !== "done" && o.createdAt?.toDate?.().toDateString() === new Date().toDateString())
+    .filter(o => {
+      const d = o.createdAt?.toDate?.();
+      return d && d.toDateString() === today.toDateString();
+    })
+    .reduce((s, o) => s + (o.total || 0), 0);
+  const monthTotal = orders
+    .filter(o => {
+      const d = o.createdAt?.toDate?.();
+      return d && d.getMonth() === today.getMonth() && d.getFullYear() === today.getFullYear();
+    })
     .reduce((s, o) => s + (o.total || 0), 0);
 
   return (
@@ -140,21 +150,23 @@ export default function AdminPanel({ menuItems, settings, branchId, onExit }) {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-4 gap-2 px-4 py-4">
-        {[
-          { label: "Items", value: menuItems.length, emoji: "🍽️" },
-          { label: "Orders", value: orders.filter(o => o.status !== "done").length, emoji: "📋" },
-          { label: "New", value: newOrderCount, emoji: "🔔", highlight: newOrderCount > 0 },
-          { label: "₹ Today", value: todayTotal, emoji: "💰" },
-        ].map(stat => (
-          <div key={stat.label} className="bg-white rounded-2xl p-3 text-center shadow-sm"
-            style={{ border: stat.highlight ? "2px solid #FF6B35" : "none", background: stat.highlight ? "#FFF8F0" : "#fff" }}>
-            <span className="text-xl">{stat.emoji}</span>
-            <p className="font-black text-xl" style={{ color: stat.highlight ? "#FF6B35" : "#1f2937" }}>{stat.value}</p>
-            <p className="text-xs text-gray-400">{stat.label}</p>
-          </div>
-        ))}
-      </div>
+          <div className="grid grid-cols-3 gap-2 px-4 py-4">
+      {[
+        { label: "Items",   value: menuItems.length,                               emoji: "🍽️" },
+        { label: "Orders",  value: orders.filter(o => o.status !== "done").length, emoji: "📋" },
+        { label: "New",     value: newOrderCount,                                  emoji: "🔔", highlight: newOrderCount > 0 },
+        { label: "Today ₹", value: `₹${todayTotal}`,                              emoji: "📅" },
+        { label: "Month ₹", value: `₹${monthTotal}`,                              emoji: "💰" },
+        { label: "Done",    value: orders.filter(o => o.status === "done").length, emoji: "🏁" },
+      ].map(stat => (
+        <div key={stat.label} className="bg-white rounded-2xl p-3 text-center shadow-sm"
+          style={{ border: stat.highlight ? "2px solid #FF6B35" : "none", background: stat.highlight ? "#FFF8F0" : "#fff" }}>
+          <span className="text-xl">{stat.emoji}</span>
+          <p className="font-black text-xl" style={{ color: stat.highlight ? "#FF6B35" : "#1f2937" }}>{stat.value}</p>
+          <p className="text-xs text-gray-400">{stat.label}</p>
+        </div>
+      ))}
+    </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mx-4 bg-white rounded-2xl p-1 shadow-sm mb-4">

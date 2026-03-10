@@ -115,6 +115,7 @@ useEffect(() => {
         setFbError(true);
       }
     }
+    
     init();
     requestNotificationPermission();
     return () => {
