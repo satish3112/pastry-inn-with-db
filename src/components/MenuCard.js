@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState} from "react";
 import { toggleWishlist, isWishlisted } from "../firebase";
 
 export default function MenuCard({ item, cartItem, addToCart, updateQty }) {
